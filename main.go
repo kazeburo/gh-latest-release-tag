@@ -3,13 +3,17 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/go-github/v39/github"
+	"github.com/patrickmn/go-cache"
 	"golang.org/x/oauth2"
+	"golang.org/x/sync/singleflight"
 )
 
 type tagAsset struct {
@@ -25,6 +29,8 @@ type tagResponse struct {
 }
 
 var ghClient *github.Client
+var ghCache *cache.Cache
+var sfGroup singleflight.Group
 
 func getIndex(c *fiber.Ctx) error {
 	return c.SendString("Try accessing /:owner/:repo")
@@ -34,16 +40,46 @@ func getLive(c *fiber.Ctx) error {
 	return c.SendString("OK")
 }
 
+type sfRes struct {
+	rel  *github.RepositoryRelease
+	code int
+}
+
+func fetchLatestReleaseTag(owner, repo string) (*github.RepositoryRelease, int, error) {
+	key := fmt.Sprintf("%s/%s", owner, repo)
+	if v, found := ghCache.Get(key); found {
+		r := v.(*github.RepositoryRelease)
+		return r, 200, nil
+	}
+
+	r, err, _ := sfGroup.Do(key, func() (interface{}, error) {
+		ctx := context.Background()
+		release, res, err := ghClient.Repositories.GetLatestRelease(ctx, owner, repo)
+		if err != nil {
+			return sfRes{release, res.StatusCode}, err
+		}
+		ghCache.SetDefault(key, release)
+		return sfRes{release, res.StatusCode}, err
+	})
+	if r == nil {
+		return nil, 500, fmt.Errorf("something wrong %v", err)
+	}
+	res := r.(sfRes)
+	return res.rel, res.code, err
+}
+
 func getLatestReleaseTag(c *fiber.Ctx) error {
 	owner := c.Params("owner")
 	repo := c.Params("repo")
-	ctx := context.Background()
-	release, res, err := ghClient.Repositories.GetLatestRelease(ctx, owner, repo)
+	release, code, err := fetchLatestReleaseTag(owner, repo)
 	if err != nil {
-		if bytes.Contains(c.Context().URI().QueryString(), []byte("plain")) {
-			return c.Status(res.StatusCode).SendString("")
+		if code >= 200 && code < 400 {
+			code = 500
 		}
-		return c.Status(res.StatusCode).JSON(tagResponse{
+		if bytes.Contains(c.Context().URI().QueryString(), []byte("plain")) {
+			return c.Status(code).SendString("")
+		}
+		return c.Status(code).JSON(tagResponse{
 			HasError: true,
 			Error:    err.Error(),
 		})
@@ -80,6 +116,8 @@ func githubClient(ctx context.Context) *github.Client {
 func main() {
 	ctx := context.Background()
 	ghClient = githubClient(ctx)
+
+	ghCache = cache.New(5*time.Minute, 10*time.Minute)
 
 	app := fiber.New()
 	app.Get("/", getIndex)

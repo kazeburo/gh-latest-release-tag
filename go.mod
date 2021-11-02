@@ -5,7 +5,9 @@ go 1.17
 require (
 	github.com/gofiber/fiber/v2 v2.21.0
 	github.com/google/go-github/v39 v39.2.0
+	github.com/patrickmn/go-cache v2.1.0+incompatible
 	golang.org/x/oauth2 v0.0.0-20211028175245-ba495a64dcb5
+	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208
 )
 
 require (
