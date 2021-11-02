@@ -12,10 +12,16 @@ import (
 	"golang.org/x/oauth2"
 )
 
+type tagAsset struct {
+	Name        string `json:"name"`
+	DownloadURL string `json:"download_url"`
+}
+
 type tagResponse struct {
-	Release  string `json:"release"`
-	HasError bool   `json:"has_error"`
-	Error    string `json:"erorr"`
+	Release  string     `json:"release"`
+	HasError bool       `json:"has_error"`
+	Error    string     `json:"erorr"`
+	Assets   []tagAsset `json:"assets"`
 }
 
 var ghClient *github.Client
@@ -45,9 +51,17 @@ func getLatestReleaseTag(c *fiber.Ctx) error {
 	if bytes.Contains(c.Context().URI().QueryString(), []byte("plain")) {
 		return c.SendString(release.GetTagName())
 	}
+	assets := make([]tagAsset, 0)
+	for _, asset := range release.Assets {
+		assets = append(assets, tagAsset{
+			Name:        asset.GetName(),
+			DownloadURL: asset.GetBrowserDownloadURL(),
+		})
+	}
 	return c.JSON(tagResponse{
 		HasError: false,
 		Release:  release.GetTagName(),
+		Assets:   assets,
 	})
 }
 
