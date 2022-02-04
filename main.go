@@ -119,9 +119,14 @@ func main() {
 
 	ghCache = cache.New(5*time.Minute, 10*time.Minute)
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	app := fiber.New()
 	app.Get("/", getIndex)
 	app.Get("/live", getLive)
 	app.Get("/:owner/:repo", getLatestReleaseTag)
-	log.Fatal(app.Listen("0.0.0.0:8080"))
+	log.Fatal(app.Listen("0.0.0.0:" + port))
 }
